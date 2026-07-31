@@ -1,0 +1,47 @@
+time:
+  start_date: 2026-01-01 00:00:00
+  calendar: "julian" # "no_leap" or "julian"
+
+solver:
+  rk4_level: 0
+  dt: 1.0
+  rtol: 1E-4
+  atol: 1E-6
+
+parameters:
+  filename: "./data/test_one_link/params.csv"
+
+initial_conditions:
+  flag: 0 # 0 for constant, 1 for netcdf
+  initial_value: 1E-3
+  filename: "" #only for flag 1
+  varname: "" #only for flag 1
+  id_varname: "" #only for flag 1
+
+boundary_conditions:
+  flag: 0 #0 no BC. 1 for netcdf of time series to use as parents
+  filename: ""
+  varname: "" #only for flag 1
+  id_varname: "" #only for flag 1
+  resolution: 0
+
+reservoir:
+  flag: 0 # 0 = no reservoirs, 1 use reservoirs
+  res_file: '' #list of IDs which have reservoirs
+
+runoff:
+  folder: "./data/test_one_link/runoff" # specify path to list of files
+  varname: "ro" #required if chunk_size > 0
+  id_varname: "LinkID" #required if chunk_size > 0
+  resolution: 60
+  chunk_size: 0  #Set to 0 to not chunk files. If > 0, it is the size of each chunk in resoluton. 
+
+output:
+  flag: 1 # 0 for no output, 1 for subset by level, 2 subset by list
+  level: 1 # only for flag 1
+  resolution: 15 # resolution in minutes (instantaneous output; 15 minute default)
+  link_list_filename: "0" # only for flag 2
+  series_filepath: "./data/test_one_link/outputs/mytimeseries" #creates timeseries_{time}.nc
+  snapshot_filepath: './data/test_one_link/outputs/snapshot' #create snapshot_{time}.nc
+  max_output: 1 # 0 for no max output, 1 for max output
+  max_output_filepath: './data/test_one_link/outputs/max_output' #create max_output_{time}.nc
