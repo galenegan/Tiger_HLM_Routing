@@ -64,7 +64,9 @@ void write_timeseries_netcdf(const std::string& filename,
                         int n_links,
                         const std::string calendar_str,
                         const std::string time_string,
-                        int compression_level) {
+                        int compression_level,
+                        const char* long_name,
+                        const char* units) {
 
     int ncid, sys_dimid, time_dimid;
     int sys_varid, time_varid, results_varid;
@@ -96,8 +98,8 @@ void write_timeseries_netcdf(const std::string& filename,
     std::string time_units = "minutes since " + cf_time;
     NC_CHECK(nc_put_att_text(ncid, time_varid, "units", time_units.size(), time_units.c_str()));
     NC_CHECK(nc_put_att_text(ncid, time_varid, "calendar", strlen(calendar_str.c_str()), calendar_str.c_str()));
-    NC_CHECK(nc_put_att_text(ncid, results_varid, "long_name", 10, "Discharge"));
-    NC_CHECK(nc_put_att_text(ncid, results_varid, "units", 6, "m^3/s"));
+    NC_CHECK(nc_put_att_text(ncid, results_varid, "long_name", strlen(long_name), long_name));
+    NC_CHECK(nc_put_att_text(ncid, results_varid, "units", strlen(units), units));
 
 
     // End define mode

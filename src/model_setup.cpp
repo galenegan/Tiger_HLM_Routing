@@ -37,11 +37,7 @@ ModelSetup setupModel(const char* config_path) {
     // Load sediment params from CSV file
     std::cout << "Loading sediment parameters...";
     if (setup.config.sediment_flag == 1) {
-        setup.sed_params = loadSedLinkParams(setup.config.sediment_parameters_file);
-        if (setup.sed_params.size() != setup.n_links) {
-            std::string error_msg = "Mismatch between number of links in sediment and node parameter files (" + std::to_string(setup.sed_params.size()) + ") vs (" + std::to_string(setup.n_links) + ")";
-            throw std::runtime_error(error_msg);
-        }
+        setup.sed_params = loadSedLinkParams(setup.config.sediment_parameters_file, setup.node_map);
     }
 
 

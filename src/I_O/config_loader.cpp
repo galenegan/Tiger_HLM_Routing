@@ -299,7 +299,7 @@ ModelConfig ConfigLoader::loadConfig(const std::string& filename) {
 
     // Load sediment parameters
     config.sediment_flag = parser.getInt("sediment.flag");
-    config.wide_channel = parser.getInt("sediment.wide_channel")
+    config.wide_channel = parser.getInt("sediment.wide_channel");
     config.sediment_parameters_file = parser.getString("sediment.params_file");
     config.hydraulics_file = parser.getString("sediment.hydraulics_file");
 

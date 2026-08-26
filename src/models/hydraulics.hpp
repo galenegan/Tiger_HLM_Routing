@@ -3,6 +3,7 @@
 #include <cmath>
 #include <utility>
 #include <limits>
+#include <exception>
 #include <boost/math/tools/roots.hpp>
 
 namespace hydraulics {
@@ -36,29 +37,42 @@ namespace hydraulics {
         if (wide_channel) {
             return wide_channel_approx;
         } else {
-            auto residual = [=](double h) {
-                return wide_channel_approx * std::pow(1 + 2 * h / B, 0.4) - h;
-            };
+            // Fall back to the wide-channel value if the rootfinder fails
+            try {
+                auto residual = [=](double h) {
+                    return wide_channel_approx * std::pow(1 + 2 * h / B, 0.4) - h;
+                };
 
-            eps_tolerance<double> tol(std::numeric_limits<double>::digits - 2);
-            std::uintmax_t max_iter = 10;
-            std::pair<double, double> result = toms748_solve(residual, wide_channel_approx, wide_channel_approx * 10.0, tol, max_iter);
-            double root = (result.first + result.second) / 2.0;
-            return root;
+                eps_tolerance<double> tol(50);
+                std::uintmax_t max_iter = 50;
+                double guess = wide_channel_approx;
+                double factor = 2.0;
+                bool rising = false;
+                std::pair<double, double> result = bracket_and_solve_root(residual, guess, factor, rising, tol, max_iter);
+                double root = (result.first + result.second) / 2.0;
+                return root;
+            } catch (const std::exception&) {
+                return wide_channel_approx;
+            }
         }
     }
 
     inline HydraulicState computeHydraulics(double q, double slope, double n, double width_a, double width_b, double drain_area_km2, double d50_mm, bool wide_channel) {
         HydraulicState state;
-
+        double safe_q = std::max(q, Q_MIN);
+        double safe_slope = std::max(slope, SLOPE_MIN);
         double B = solveWidth(width_a, width_b, drain_area_km2);
-        double h = solveDepth(q, slope, n, B, wide_channel);
-        double v = q / (h * B);
-        double ustar = std::sqrt(g * h * slope);
+        double safe_B = std::max(B, WIDTH_MIN);
+        double h = solveDepth(safe_q, safe_slope, n, safe_B, wide_channel);
+        double v = safe_q / (h * safe_B);
+        double ustar = std::sqrt(g * h * safe_slope);
         double froude = v / std::sqrt(g * h);
 
+        // Shields is undefined without a grain size; report 0 rather than inf/NaN.
         double d50_m = d50_mm / 1000.0;
-        double shields = std::pow(ustar, 2.0) / (gamma_sed * g * d50_m);
+        double shields = (d50_m > 0.0)
+                       ? std::pow(ustar, 2.0) / (gamma_sed * g * d50_m)
+                       : 0.0;
 
         state.depth = h;
         state.velocity = v;

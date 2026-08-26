@@ -37,7 +37,9 @@ void write_timeseries_netcdf(const std::string& filename,
                         int n_links,
                         const std::string calendar_str,
                         const std::string time_string,
-                        int compression_level = 0);
+                        int compression_level = 0,
+                        const char* long_name = "Discharge",
+                        const char* units = "m^3/s");
 
 /**
  * @brief Write only the final time step of a results 2D array to a NetCDF file (no time dimension).

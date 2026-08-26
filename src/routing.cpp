@@ -105,7 +105,7 @@ void writeOutput(const ModelSetup& setup,
     // Number of steps to skip per output
     size_t output_res_steps = static_cast<size_t>(setup.config.output_resolution / setup.config.dt);
     size_t n_saved_steps = (n_steps + output_res_steps - 1) / output_res_steps;
-    std::vector<float> compacted_results(n_saved_steps * n_keep_links);
+    std::vector<float> discharge_results(n_saved_steps * n_keep_links);
     std::vector<float> depth_results(n_saved_steps * n_keep_links);
     std::vector<float> velocity_results(n_saved_steps * n_keep_links);
     std::vector<float> ustar_results(n_saved_steps * n_keep_links);
@@ -120,12 +120,12 @@ void writeOutput(const ModelSetup& setup,
         for (size_t j = 0; j < n_keep_links; ++j) {
             size_t link_index = keep_indices[j];
             size_t idx = i * n_keep_links + j;
-            compacted_results[idx] = results[link_index * n_steps + t];
+            discharge_results[idx] = results[link_index * n_steps + t];
 
             if (setup.config.sediment_flag == 1) {
-                SedLinkParams sed_params = setup.sed_params.at(link_index);
-                HydraulicState hydraulic_state = computeHydraulics(
-                    compacted_results[idx],
+                const auto& sed_params = setup.sed_params[link_index];
+                hydraulics::HydraulicState hydraulic_state = hydraulics::computeHydraulics(
+                    discharge_results[idx],
                     sed_params.channel_slope,
                     sed_params.channel_manning_n,
                     sed_params.width_a,
@@ -143,15 +143,45 @@ void writeOutput(const ModelSetup& setup,
         }
     }
 
+    // Writing the discharge first
     std::string series_filename = setup.config.series_filepath + "_" + time_string + ".nc";
     write_timeseries_netcdf(series_filename,
-                           compacted_results.data(),
+                           discharge_results.data(),
                            sim_times.data(),
                            keep_links.data(),
                            n_saved_steps,
                            n_keep_links,
                            setup.config.calendar,
                            time_string);
+
+    // And then each of the hydraulics outputs if requested
+    if (setup.config.sediment_flag == 1) {
+
+        struct HydroOut{const std::vector<float>& data; const char* name; const char* units;};
+        const HydroOut labeled[] = {
+        {depth_results,    "depth",    "m"},
+        {velocity_results, "velocity", "m/s"},
+        {ustar_results,    "ustar",    "m/s"},
+        {shields_results,  "shields",  "1"},
+        {froude_results,   "froude",   "1"},
+        };
+
+        for (const auto& out : labeled) {
+            std::string hydro_series_filename = setup.config.hydraulics_file + "_" + out.name + "_" + time_string + ".nc";
+            write_timeseries_netcdf(hydro_series_filename,
+                                   out.data.data(),
+                                   sim_times.data(),
+                                   keep_links.data(),
+                                   n_saved_steps,
+                                   n_keep_links,
+                                   setup.config.calendar,
+                                   time_string,
+                                   0,
+                                   out.name,
+                                   out.units
+                                   );
+        }
+    }
 
     std::cout << "completed!" << std::endl;
 }
