@@ -12,7 +12,9 @@ using namespace boost::numeric::odeint;
 #include "I_O/output_series.hpp"
 #include "I_O/inputs.hpp"
 #include "models/RHS.hpp"
+#include "models/hydraulics.hpp"
 #include "utils/time.hpp"
+#include "I_O/sediment_params.hpp"
 
 //--------------------------------------------------------------------------------------------------
 // Function Definitions
@@ -104,6 +106,12 @@ void writeOutput(const ModelSetup& setup,
     size_t output_res_steps = static_cast<size_t>(setup.config.output_resolution / setup.config.dt);
     size_t n_saved_steps = (n_steps + output_res_steps - 1) / output_res_steps;
     std::vector<float> compacted_results(n_saved_steps * n_keep_links);
+    std::vector<float> depth_results(n_saved_steps * n_keep_links);
+    std::vector<float> velocity_results(n_saved_steps * n_keep_links);
+    std::vector<float> ustar_results(n_saved_steps * n_keep_links);
+    std::vector<float> shields_results(n_saved_steps * n_keep_links);
+    std::vector<float> froude_results(n_saved_steps * n_keep_links);
+
     // Parallel nested loop with fixed indexing
     #pragma omp parallel for
     for (size_t i = 0; i < n_saved_steps; ++i) {
@@ -111,7 +119,27 @@ void writeOutput(const ModelSetup& setup,
         if(t >= n_steps) t = n_steps - 1; // clamp to last step
         for (size_t j = 0; j < n_keep_links; ++j) {
             size_t link_index = keep_indices[j];
-            compacted_results[i * n_keep_links + j] = results[link_index * n_steps + t];
+            size_t idx = i * n_keep_links + j;
+            compacted_results[idx] = results[link_index * n_steps + t];
+
+            if (setup.config.sediment_flag == 1) {
+                SedLinkParams sed_params = setup.sed_params.at(link_index);
+                HydraulicState hydraulic_state = computeHydraulics(
+                    compacted_results[idx],
+                    sed_params.channel_slope,
+                    sed_params.channel_manning_n,
+                    sed_params.width_a,
+                    sed_params.width_b,
+                    sed_params.drain_area_km2,
+                    sed_params.d50_mm,
+                    setup.config.wide_channel
+                    );
+                depth_results[idx] = hydraulic_state.depth;
+                velocity_results[idx] = hydraulic_state.velocity;
+                ustar_results[idx] = hydraulic_state.ustar;
+                shields_results[idx] = hydraulic_state.shields;
+                froude_results[idx] = hydraulic_state.froude;
+            }
         }
     }
 

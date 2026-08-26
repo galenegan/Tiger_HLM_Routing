@@ -25,6 +25,12 @@ struct ModelConfig {
     // Parameters
     std::string parameters_file;
 
+    // Sediment
+    int sediment_flag = 0;
+    int wide_channel = 0;
+    std::string sediment_parameters_file;
+    std::string hydraulics_file;
+
     // Initial conditions
     int initial_conditions_flag;
     float initial_value; // constant value for initial conditions

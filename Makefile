@@ -101,6 +101,7 @@ SRC := src/main.cpp \
        src/I_O/output_series.cpp \
        src/I_O/inputs.cpp \
        src/I_O/config_loader.cpp \
+       src/I_O/sediment_params.cpp \
        src/utils/time.cpp
 
 # ==== Build and Binary Directories ====

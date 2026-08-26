@@ -11,6 +11,12 @@ solver:
 parameters:
   filename: "./data/test_one_link/params.csv"
 
+sediment:
+  flag: 1 # 1 to include sediment transport and hydraulics calcs; 0 otherwise
+  wide_channel: 1  # 1 to use wide channel approximation; 0 to solve rootfinding problem for depth (more expensive)
+  params_file: "./data/test_one_link/sediment_params.csv"
+  hydraulics_file: "./data/test_one_link/outputs/hydraulics"
+
 initial_conditions:
   flag: 0 # 0 for constant, 1 for netcdf
   initial_value: 1E-3

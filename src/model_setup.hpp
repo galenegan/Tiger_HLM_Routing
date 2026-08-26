@@ -12,6 +12,7 @@
 #include "I_O/output_series.hpp"
 #include "I_O/inputs.hpp"
 #include "I_O/config_loader.hpp"
+#include "I_O/sediment_params.hpp"
 
 /**
  * @brief Struct to hold the model setup information.
@@ -27,6 +28,7 @@ struct ModelSetup {
     BoundaryConditions boundary_conditions;
     RunoffChunkInfo runoff_info;
     SaveInfo save_info;
+    std::vector<SedLinkParams> sed_params;
 };
 
 ModelSetup setupModel(const char* config_path);
