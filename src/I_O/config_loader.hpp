@@ -32,6 +32,13 @@ struct ModelConfig {
     int wide_channel = 0;
     std::string sediment_parameters_file;
     std::string hydraulics_file;
+    std::string supply_folder;
+    std::string supply_varname;
+    int supply_resolution;
+    float rho_s;
+    int bed_material;
+    int washload;
+    std::string sediment_series_filepath;
 
     // Initial conditions
     int initial_conditions_flag;

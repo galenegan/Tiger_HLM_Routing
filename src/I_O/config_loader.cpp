@@ -310,6 +310,7 @@ ModelConfig ConfigLoader::loadConfig(const std::string& filename) {
     config.wide_channel = parser.getInt("sediment.wide_channel");
     config.sediment_parameters_file = parser.getString("sediment.params_file");
     config.hydraulics_file = parser.getString("sediment.hydraulics_file");
+    config.supply_folder = parser.getString("sediment.supply_folder");
 
     // Load initial conditions
     config.initial_conditions_flag = parser.getInt("initial_conditions.flag");

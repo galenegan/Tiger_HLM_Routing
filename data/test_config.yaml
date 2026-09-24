@@ -16,6 +16,13 @@ sediment:
   wide_channel: 1  # 1 to use wide channel approximation; 0 to solve rootfinding problem for depth (more expensive)
   params_file: "./data/test_one_link/sediment_params.csv"
   hydraulics_file: "./data/test_one_link/outputs/hydraulics"
+  supply_folder: "./data/test_one_link/sed_supply/"  # hillslope yield NetCDF
+  supply_varname: "sed_yield"
+  supply_resolution: 60  # minutes; must equal runoff.resolution
+  rho_s: 2650.0  # sediment density, kg/m^3
+  bed_material: 1  # 0 disables resuspension from the bed
+  washload: 1  # 0 disables hillslope supply pathway
+  sediment_series_filepath: "./data/test_one_link/outputs/sediment"
 
 initial_conditions:
   flag: 0 # 0 for constant, 1 for netcdf
