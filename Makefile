@@ -1,7 +1,10 @@
 # ==== Toolchain detection ====
 # The platform selects the toolchain automatically:
-#   Linux  -> intel       (icpx, cluster modules; the default on main)
-#   Darwin -> appleclang  (Apple clang + Homebrew netcdf/boost/libomp)
+#   Linux  -> intel       (mpiicpx, cluster modules; the default on main)
+#   Darwin -> appleclang  (Homebrew open-mpi + netcdf/boost/libomp)
+#
+# Both toolchains build through an MPI C++ wrapper: the routing code calls MPI
+# unconditionally (src/main.cpp, src/boundary_exchange.hpp).
 #
 # Overrides, all settable on the command line:
 #   make TOOLCHAIN=intel|appleclang   force a toolchain
@@ -9,7 +12,7 @@
 #   make NETCDF_PATH=/path/to/netcdf  skip nc-config discovery
 #   make BOOST_PATH=... LIBOMP_PATH=... BREW_PREFIX=...   (appleclang only)
 #   make ARCH_FLAGS=-xHost            build for a non-Sapphire-Rapids Intel node
-# Run `make config` to print what was detected.
+# Run `make config` to print what was detected, including which MPI wrapper.
 
 UNAME_S := $(shell uname -s)
 
@@ -27,9 +30,9 @@ endif
 # command-line CXX win.
 ifeq ($(origin CXX),default)
   ifeq ($(TOOLCHAIN),appleclang)
-    CXX := clang++
+    CXX := mpicxx
   else
-    CXX := icpx
+    CXX := mpiicpx
   endif
 endif
 
@@ -95,6 +98,9 @@ SRC := src/main.cpp \
        src/build_info.cpp \
        src/omp_info.cpp \
        src/model_setup.cpp \
+       src/dependency_graph.cpp \
+       src/partition.cpp \
+       src/boundary_exchange.cpp \
        src/routing.cpp \
        src/end_info.cpp \
        src/I_O/node_info.cpp \
@@ -102,7 +108,8 @@ SRC := src/main.cpp \
        src/I_O/inputs.cpp \
        src/I_O/config_loader.cpp \
        src/I_O/sediment_params.cpp \
-       src/utils/time.cpp
+       src/utils/time.cpp \
+       src/utils/level_timing.cpp
 
 # ==== Build and Binary Directories ====
 BUILD_DIR := build
