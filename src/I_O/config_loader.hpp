@@ -35,9 +35,9 @@ struct ModelConfig {
     std::string supply_folder;
     std::string supply_varname;
     int supply_resolution;
-    float rho_s;
-    int bed_material;
-    int washload;
+    double rho_s;
+    int bed_source;
+    int hillslope_source;
     std::string sediment_series_filepath;
 
     // Initial conditions

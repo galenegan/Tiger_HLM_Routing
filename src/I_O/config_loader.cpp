@@ -311,7 +311,17 @@ ModelConfig ConfigLoader::loadConfig(const std::string& filename) {
     config.sediment_parameters_file = parser.getString("sediment.params_file");
     config.hydraulics_file = parser.getString("sediment.hydraulics_file");
     config.supply_folder = parser.getString("sediment.supply_folder");
+    config.supply_varname = parser.getString("sediment.supply_varname");
+    config.supply_resolution = parser.getInt("sediment.supply_resolution");
+    config.rho_s = parser.getDouble("sediment.rho_s");
+    if (config.rho_s < 1000) {
+        throw std::runtime_error("Value for 'rho_s' must be greater than 1000.");
+    }
+    config.bed_source = parser.getInt("sediment.bed_source");
+    config.hillslope_source = parser.getInt("sediment.hillslope_source");
+    config.sediment_series_filepath = parser.getString("sediment.sediment_series_filepath");
 
+    
     // Load initial conditions
     config.initial_conditions_flag = parser.getInt("initial_conditions.flag");
     config.initial_value = parser.getDouble("initial_conditions.initial_value");
@@ -336,6 +346,10 @@ ModelConfig ConfigLoader::loadConfig(const std::string& filename) {
     config.runoff_path = parser.getString("runoff.folder");
     config.runoff_varname = parser.getString("runoff.varname");
     config.runoff_id_varname = parser.getString("runoff.id_varname");
+
+    if ((config.sediment_flag) && (config.runoff_resolution != config.supply_resolution)) {
+        throw std::runtime_error("Runoff resolution must equal supply resolution");
+    }
 
     // Load output options
     config.output_flag = parser.getInt("output.flag");

@@ -154,6 +154,7 @@ void writeOutput(const ModelSetup& setup,
                     sed_params.width_b,
                     sed_params.drain_area_km2,
                     sed_params.d50_mm,
+                    setup.config.rho_s,
                     setup.config.wide_channel
                     );
                 depth_results[idx] = hydraulic_state.depth;

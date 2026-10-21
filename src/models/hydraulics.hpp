@@ -10,7 +10,7 @@ namespace hydraulics {
 
     // Physical constants
     const double g = 9.81;
-    const double gamma_sed = 1.65;
+    const double RHO_W = 1000.0;
 
     // Lower bounds for stable computations
     const double Q_MIN = 1e-8; // m^3/s
@@ -57,7 +57,7 @@ namespace hydraulics {
         }
     }
 
-    inline HydraulicState computeHydraulics(double q, double slope, double n, double width_a, double width_b, double drain_area_km2, double d50_mm, bool wide_channel) {
+    inline HydraulicState computeHydraulics(double q, double slope, double n, double width_a, double width_b, double drain_area_km2, double d50_mm, double rho_s, bool wide_channel) {
         HydraulicState state;
         double safe_q = std::max(q, Q_MIN);
         double safe_slope = std::max(slope, SLOPE_MIN);
@@ -67,6 +67,7 @@ namespace hydraulics {
         double v = safe_q / (h * safe_B);
         double ustar = std::sqrt(g * h * safe_slope);
         double froude = v / std::sqrt(g * h);
+        double gamma_sed = (rho_s - RHO_W) / RHO_W;
 
         // Shields is undefined without a grain size; report 0 rather than inf/NaN.
         double d50_m = d50_mm / 1000.0;
