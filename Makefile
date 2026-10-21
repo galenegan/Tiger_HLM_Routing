@@ -93,6 +93,25 @@ endif
 CPPFLAGS := $(NETCDF_CPPFLAGS) $(BOOST_CPPFLAGS) $(OMP_CPPFLAGS)
 LDFLAGS  := $(BOOST_LDFLAGS) $(NETCDF_LDFLAGS) $(OMP_LDFLAGS)
 
+# ==== Build and Binary Directories ====
+BUILD_DIR := build
+BIN_DIR := bin
+
+# ==== Optional GPU level-0 solver ====
+# `make USE_GPU=1` compiles src/models/level0_gpu.cu and offloads level-0 links to
+# CUDA. Default 0, so a plain `make` is the CPU-only build on both toolchains.
+USE_GPU ?= 0
+ifeq ($(USE_GPU),1)
+  NVCC := nvcc
+  CXXFLAGS += -DUSE_GPU_LEVEL0
+  NVCCFLAGS := -O3 -std=c++17 --expt-relaxed-constexpr -Xcompiler -fopenmp \
+               $(BOOST_CPPFLAGS) $(NETCDF_CPPFLAGS)
+  LDFLAGS += -L$(CUDA_HOME)/lib64 -lcudart
+  GPU_OBJ := $(BUILD_DIR)/models/level0_gpu.o
+else
+  GPU_OBJ :=
+endif
+
 # ==== Source Files ====
 SRC := src/main.cpp \
        src/build_info.cpp \
@@ -111,12 +130,9 @@ SRC := src/main.cpp \
        src/utils/time.cpp \
        src/utils/level_timing.cpp
 
-# ==== Build and Binary Directories ====
-BUILD_DIR := build
-BIN_DIR := bin
-
 # ==== Object files in build dir ====
 OBJ := $(patsubst src/%.cpp,$(BUILD_DIR)/%.o,$(SRC))
+OBJ += $(GPU_OBJ)
 
 # ==== Executable ====
 BIN := $(BIN_DIR)/routing
@@ -130,10 +146,17 @@ $(BIN): $(OBJ)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-# ==== Compile source files ====
+# ==== Compile C++ source files ====
 $(BUILD_DIR)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+
+# ==== Compile CUDA source file (only when USE_GPU=1) ====
+ifeq ($(USE_GPU),1)
+$(BUILD_DIR)/models/level0_gpu.o: src/models/level0_gpu.cu
+	@mkdir -p $(dir $@)
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@
+endif
 
 # ==== Clean ====
 clean:
@@ -147,5 +170,6 @@ config:
 	@echo "CXXFLAGS  : $(CXXFLAGS)"
 	@echo "CPPFLAGS  : $(CPPFLAGS)"
 	@echo "LDFLAGS   : $(LDFLAGS)"
+	@echo "USE_GPU   : $(USE_GPU)"
 
 .PHONY: all clean config
