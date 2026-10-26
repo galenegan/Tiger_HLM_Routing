@@ -4,6 +4,8 @@
 #include <atomic>
 #include <future>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 #include <vector>
 #include <utility>
 #include <boost/numeric/odeint.hpp>
@@ -626,6 +628,7 @@ void ProcessChunk(const ModelSetup& setup,
                   size_t& total_time_steps,
                   std::vector<float>& q_final,
                   RunoffData& runoff,
+                  const RunoffData& supply,
                   double read_seconds,
                   RunoffPrefetcher& prefetch,
                   std::vector<float>& results,
@@ -783,6 +786,69 @@ void ProcessChunk(const ModelSetup& setup,
     
 }
 
+
+// Start index of each chunk within its own file. Runoff and supply folders may split their
+// files differently, so each gets its own offsets.
+static std::vector<size_t> getChunkStart(const RunoffChunkInfo& info, size_t chunk_size) {
+    std::vector<size_t> chunk_start(info.nchunks, 0);
+    for (int tc = 1; tc < info.nchunks; ++tc) {
+        const bool same_file = info.filenames[tc] == info.filenames[tc - 1];
+        chunk_start[tc] = same_file ? chunk_start[tc - 1] + chunk_size : 0;
+    }
+    return chunk_start;
+}
+
+
+/**
+ * @brief Checks one chunk of sediment supply against the runoff read for the same chunk.
+ * Throws if the step counts differ or if any link owned by this rank is missing from the
+ * supply file. Also calculates the mass of sediment associated with that supply file to
+ * help verify that we aren't losing mass in the output
+ */
+static double ValidateSupplyChunkAndCalculateMass(const ModelSetup& setup, const Partition& part,
+                                const RunoffData& runoff, const RunoffData& supply, int tc) {
+    const std::string& supply_file = setup.supply_info->filenames[tc];
+    const double dt_hr = setup.config.supply_resolution / 60.0;
+    double mass = 0.0;
+
+    if (supply.nTime != runoff.nTime) {
+        throw std::runtime_error(
+            "Chunk " + std::to_string(tc) + ": supply file " + supply_file + " gives " +
+            std::to_string(supply.nTime) + " time steps but runoff file " +
+            setup.runoff_info.filenames[tc] + " gives " + std::to_string(runoff.nTime));
+    }
+
+    size_t n_missing = 0;
+    int first_missing = 0;
+    for (size_t local = 0; local < part.n_owned(); ++local) {
+        const NodeInfo& node = setup.node_map.at(part.global_of[local]);
+        const int stream_id = node.stream_id;
+        const auto it = supply.idToIndex.find(stream_id);
+        if (it == supply.idToIndex.end()) {
+            if (n_missing == 0) first_missing = stream_id;
+            ++n_missing;
+            continue;
+        }
+        const float* row = &supply.data[it->second * supply.nTime];
+        double row_sum = 0.0;
+        for (size_t t = 0; t < supply.nTime; ++t) {
+            row_sum += row[t];
+        }
+        mass += row_sum * node.params[0] * dt_hr; // params[0] = A_h, m^2
+    }
+    if (n_missing > 0) {
+        throw std::runtime_error(
+            "Chunk " + std::to_string(tc) + ": " + std::to_string(n_missing) + " of " +
+            std::to_string(part.n_owned()) + " links on rank " + std::to_string(part.rank) +
+            " are missing from supply file " + supply_file + " (variable '" +
+            setup.config.supply_id_varname + "'), first missing stream_id " +
+            std::to_string(first_missing));
+    }
+
+    return mass;
+}
+
+
 //-------------------------------------------------------------------------------------------------
 // MAIN FUNCTION
 //-------------------------------------------------------------------------------------------------
@@ -859,19 +925,26 @@ void runRouting(const ModelSetup& setup, int rank, int n_ranks){
     for (auto& r : results) r.reserve(max_size);
 
     // Precomputed because the prefetch needs chunk t+1's offset while chunk t is still solving.
-    std::vector<size_t> chunk_start(setup.runoff_info.nchunks, 0);
-    for (int tc = 1; tc < setup.runoff_info.nchunks; ++tc) {
-        const bool same_file =
-            setup.runoff_info.filenames[tc] == setup.runoff_info.filenames[tc - 1];
-        chunk_start[tc] = same_file ? chunk_start[tc - 1] + setup.config.chunk_size : 0;
-    }
+    std::vector<size_t> chunk_start = getChunkStart(setup.runoff_info, setup.config.chunk_size);
+    std::vector<size_t> supply_start;
+    if (setup.supply_info) supply_start = getChunkStart(*setup.supply_info, setup.config.chunk_size);
 
+    // Lambdas for reading runoff and sediment supply
     auto read_chunk = [&setup, &chunk_start](int tc) {
         return readTotalRunoff(setup.runoff_info.filenames[tc],
                                setup.config.runoff_varname,
                                setup.config.runoff_id_varname,
                                chunk_start[tc],
                                setup.config.chunk_size);
+    };
+
+    auto read_supply = [&setup, &supply_start](int tc) {
+        return readTotalRunoff(setup.supply_info->filenames[tc],
+                                setup.config.supply_varname,
+                                setup.config.supply_id_varname,
+                                supply_start[tc],
+                                setup.config.chunk_size
+                                );
     };
 
     // process chunks
@@ -881,9 +954,16 @@ void runRouting(const ModelSetup& setup, int rank, int n_ranks){
         // Blocks only if the read has not finished; with prefetching on it usually has,
         // because it ran during the previous chunk's solve.
         auto [runoff, waited] = prefetch.take(tc, read_chunk);
+        RunoffData supply{};
+        if (setup.supply_info) {
+            supply = read_supply(tc);
+            double mass = ValidateSupplyChunkAndCalculateMass(setup, part, runoff, supply, tc);
+            std::cout << "  Supplied sediment mass, chunk " << tc << ", rank " << part.rank
+                      << ": " << mass << " kg" << std::endl;
+        }
         // Start the next read now, so it overlaps this chunk's integration.
         if (tc + 1 < setup.runoff_info.nchunks) prefetch.start(tc + 1, read_chunk);
-        ProcessChunk(setup, part, ex, tc, total_time_steps, q_final, runoff, waited,
+        ProcessChunk(setup, part, ex, tc, total_time_steps, q_final, runoff, supply, waited,
                      prefetch, results[tc % n_results], graph, pending, profiler);
     }
     prefetch.stop();

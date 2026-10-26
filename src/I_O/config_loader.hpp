@@ -33,6 +33,7 @@ struct ModelConfig {
     std::string hydraulics_file;
     std::string supply_folder;
     std::string supply_varname;
+    std::string supply_id_varname;
     int supply_resolution;
     double rho_s;
     int bed_source;

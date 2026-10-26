@@ -5,6 +5,7 @@
 #include <map>
 #include <vector>
 #include <functional>
+#include <optional>
 #include <string>
 
 // External libraries
@@ -27,6 +28,7 @@ struct ModelSetup {
     std::function<float(int)> uini;
     BoundaryConditions boundary_conditions;
     RunoffChunkInfo runoff_info;
+    std::optional<RunoffChunkInfo> supply_info;
     SaveInfo save_info;
     std::vector<SedLinkParams> sed_params;
 };

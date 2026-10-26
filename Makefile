@@ -172,4 +172,12 @@ config:
 	@echo "LDFLAGS   : $(LDFLAGS)"
 	@echo "USE_GPU   : $(USE_GPU)"
 
-.PHONY: all clean config
+# ==== Sediment closure checks ====
+# Built without -ffast-math, which would let the compiler assume no NaN or inf and drop
+# the finiteness checks.
+check-closures:
+	@mkdir -p $(BIN_DIR)
+	$(CXX) -O2 -std=c++17 $(BOOST_CPPFLAGS) -Isrc -o $(BIN_DIR)/check_sediment_closures tools/check_sediment_closures.cpp
+	./$(BIN_DIR)/check_sediment_closures
+
+.PHONY: all clean config check-closures

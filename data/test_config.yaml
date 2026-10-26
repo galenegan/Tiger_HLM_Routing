@@ -18,6 +18,7 @@ sediment:
   hydraulics_file: "./data/test_one_link/outputs/hydraulics"
   supply_folder: "./data/test_one_link/sed_supply/"  # hillslope yield NetCDF
   supply_varname: "sed_yield"
+  supply_id_varname: "LinkID"
   supply_resolution: 60  # minutes; must equal runoff.resolution
   rho_s: 2650.0  # sediment density, kg/m^3
   bed_source: 1  # 0 disables resuspension from the bed

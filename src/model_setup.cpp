@@ -3,6 +3,8 @@
 
 // C++ standard libraries
 #include <iostream>         // For std::cout, std::endl
+#include <stdexcept>
+#include <string>
 
 // External libraries
 #include "I_O/node_info.hpp"
@@ -10,6 +12,39 @@
 #include "I_O/inputs.hpp"
 #include "I_O/config_loader.hpp"
 #include "I_O/sediment_params.hpp"
+#include "models/sediment_closures.hpp"
+
+
+/**
+ * @brief Prints the parsed sediment config and the derived grain properties of the
+ * link with node index 0, so the inputs can be checked against the YAML and CSV.
+ */
+static void printSedimentSummary(const ModelSetup& setup) {
+    const ModelConfig& c = setup.config;
+    std::cout << "  Sediment config:" << std::endl
+              << "    wide_channel: " << c.wide_channel
+              << ", bed_source: " << c.bed_source
+              << ", hillslope_source: " << c.hillslope_source
+              << ", rho_s: " << c.rho_s << " kg/m^3" << std::endl
+              << "    params_file: " << c.sediment_parameters_file << std::endl
+              << "    hydraulics_file: " << c.hydraulics_file << std::endl
+              << "    supply_folder: " << c.supply_folder
+              << " (varname '" << c.supply_varname
+              << "', id_varname '" << c.supply_id_varname
+              << "', resolution " << c.supply_resolution << " min)" << std::endl
+              << "    sediment_series_filepath: " << c.sediment_series_filepath << std::endl;
+
+    if (setup.sed_params.empty()) return;
+    const SedLinkParams& p = setup.sed_params[0];
+    std::cout << "  Link at node index 0 (stream_id " << p.stream_id << "):"
+              << " d50_mm " << p.d50_mm;
+    if (p.d50_mm > 0.0) {
+        std::cout << ", settling velocity " << sediment::settlingVelocity(p.d50_mm, c.rho_s) << " m/s"
+                  << ", D* " << sediment::dStar(p.d50_mm, c.rho_s)
+                  << ", critical Shields " << sediment::criticalShields(p.d50_mm, c.rho_s);
+    }
+    std::cout << std::endl;
+}
 
 
 /**
@@ -39,6 +74,10 @@ ModelSetup setupModel(const char* config_path) {
     std::cout << "Loading sediment parameters...";
     if (setup.config.sediment_flag == 1) {
         setup.sed_params = loadSedLinkParams(setup.config.sediment_parameters_file, setup.node_map);
+        std::cout << "completed!" << std::endl;
+        printSedimentSummary(setup);
+    } else {
+        std::cout << "skipped (sediment.flag 0)" << std::endl;
     }
 
 
@@ -73,6 +112,35 @@ ModelSetup setupModel(const char* config_path) {
                                            setup.config.runoff_varname,
                                            setup.config.chunk_size);
     std::cout << "completed!" << std::endl;
+
+    // Getting supply chunk info
+    if (setup.config.sediment_flag == 1 && setup.config.hillslope_source == 1) {
+        std::cout << "Loading supply data chunk info...";
+        setup.supply_info = getRunoffChunkInfo(
+            setup.config.supply_folder,
+            setup.config.supply_varname,
+            setup.config.chunk_size
+            );
+
+        if (setup.supply_info->nchunks != setup.runoff_info.nchunks) {
+            throw std::runtime_error(
+                "Supply folder " + setup.config.supply_folder + " gives " +
+                std::to_string(setup.supply_info->nchunks) + " chunks but runoff folder " +
+                setup.config.runoff_path + " gives " + std::to_string(setup.runoff_info.nchunks));
+        }
+
+        for (int i = 0; i < setup.supply_info->nchunks; i++) {
+            if (setup.supply_info->ntime[i] != setup.runoff_info.ntime[i]) {
+                throw std::runtime_error(
+                    "Chunk " + std::to_string(i) + ": supply file " + setup.supply_info->filenames[i] +
+                    " gives " + std::to_string(setup.supply_info->ntime[i]) +
+                    " time steps but runoff file " + setup.runoff_info.filenames[i] +
+                    " gives " + std::to_string(setup.runoff_info.ntime[i]));
+            }
+        }
+        std::cout << "completed!" << std::endl;
+    }
+
 
     // OUTPUT OPTIONS------------------------
     std::cout << "Setting up output options...";

@@ -325,14 +325,30 @@ ModelConfig ConfigLoader::loadConfig(const std::string& filename) {
     config.hydraulics_file = parser.getString("sediment.hydraulics_file");
     config.supply_folder = parser.getString("sediment.supply_folder");
     config.supply_varname = parser.getString("sediment.supply_varname");
+    config.supply_id_varname = parser.getString("sediment.supply_id_varname", "LinkID");
     config.supply_resolution = parser.getInt("sediment.supply_resolution");
     config.rho_s = parser.getDouble("sediment.rho_s");
-    if (config.rho_s < 1000) {
-        throw std::runtime_error("Value for 'rho_s' must be greater than 1000.");
-    }
     config.bed_source = parser.getInt("sediment.bed_source");
     config.hillslope_source = parser.getInt("sediment.hillslope_source");
     config.sediment_series_filepath = parser.getString("sediment.sediment_series_filepath");
+
+    auto require_switch = [](const std::string& key, int value) {
+        if (value != 0 && value != 1) {
+            throw std::runtime_error("sediment." + key + " must be 0 or 1, got " +
+                                     std::to_string(value));
+        }
+    };
+    require_switch("flag", config.sediment_flag);
+    // The remaining keys are unused without sediment, so configs without a sediment block still load
+    if (config.sediment_flag == 1) {
+        require_switch("wide_channel", config.wide_channel);
+        require_switch("bed_source", config.bed_source);
+        require_switch("hillslope_source", config.hillslope_source);
+        if (config.rho_s < 1000) {
+            throw std::runtime_error("sediment.rho_s must be at least 1000 kg/m^3, got " +
+                                     std::to_string(config.rho_s));
+        }
+    }
 
     
     // Load initial conditions
