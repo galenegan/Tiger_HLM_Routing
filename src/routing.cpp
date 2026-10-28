@@ -29,6 +29,7 @@ using namespace boost::numeric::odeint;
 #include "utils/time.hpp"
 #include "I_O/sediment_params.hpp"
 #include "utils/level_timing.hpp"
+#include "sediment.hpp"
 
 //--------------------------------------------------------------------------------------------------
 // Function Definitions
@@ -634,7 +635,8 @@ void ProcessChunk(const ModelSetup& setup,
                   std::vector<float>& results,
                   const DependencyGraph& graph,
                   std::vector<std::atomic<int>>& pending,
-                  LevelProfiler& profiler)
+                  LevelProfiler& profiler,
+                  SedimentResults& sed)
 {
     std::cout << "Processing chunk/file " << tc + 1 << " of " << setup.runoff_info.nchunks << ":" << std::endl;
 
@@ -760,6 +762,14 @@ void ProcessChunk(const ModelSetup& setup,
         }
     // Hand this rank's cut-edge series to the ranks downstream of it.
     SendBoundaries(ex, results, n_steps, tc);
+
+    // Calculating sediment results
+    if (setup.config.sediment_flag == 1) {
+        sed.resize(part.n_owned(), runoff.nTime);
+        for (const auto& [level, nodes_at_level] : setup.level_groups) {
+            ComputeSedimentAtLevel(setup, part, supply, results, n_steps, nodes_at_level, sed);
+        }
+    }
     std::cout << "completed!" << std::endl;
     auto solve_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> solve_elapsed = solve_end - solve_start ;
@@ -866,6 +876,15 @@ void runRouting(const ModelSetup& setup, int rank, int n_ranks){
     Partition part = LoadPartition(setup.n_links, setup.config.mpi_partition_file,
                                    rank, n_ranks, setup.config.parameters_file);
 
+    if (setup.config.sediment_flag == 1) {
+        if (part.distributed()) {
+            std::cerr << "Error: sediment_flag = 1 is not supported with more than one MPI rank. "
+            << "Run on one rank or set sediment_flag = 0." << std::endl;
+        }
+        exit(EXIT_FAILURE);
+    }
+    SedimentResults sed;
+
     std::vector<float> q_final(part.n_owned()); //final value per owned link, local indices
 
     std::cout << "  Traversal: " << setup.config.traversal
@@ -964,7 +983,7 @@ void runRouting(const ModelSetup& setup, int rank, int n_ranks){
         // Start the next read now, so it overlaps this chunk's integration.
         if (tc + 1 < setup.runoff_info.nchunks) prefetch.start(tc + 1, read_chunk);
         ProcessChunk(setup, part, ex, tc, total_time_steps, q_final, runoff, supply, waited,
-                     prefetch, results[tc % n_results], graph, pending, profiler);
+                     prefetch, results[tc % n_results], graph, pending, profiler, sed);
     }
     prefetch.stop();
     FinishBoundaries(ex);   // no message may still be in flight at MPI_Finalize

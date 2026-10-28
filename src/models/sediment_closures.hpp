@@ -3,11 +3,11 @@
 #include <cmath>
 #include "hydraulics.hpp"
 
-// Suspended bed-material load after van Rijn (1984a, Part I: J. Hydraul. Eng. 110(10);
-// 1984b, Part II: 110(11)), following the procedure in Part II p. 1632. Deviations:
-// Ferguson-Church fall velocity of D50 in place of Part II eqs. 11-13 and 39, plane-bed
+// Suspended bed-material load following van Rijn (1984a, Part I: J. Hydraul. Eng. 110(10);
+// 1984b, Part II: 110(11)).
+// Deviations: Ferguson-Church fall velocity of D50 in place of Part II eqs. 11-13 and 39, plane-bed
 // roughness 3 D90 for the reference level, and the log-law profile scaled to the Manning
-// mean velocity. The grain-size functions assume d50_mm > 0; bedSourcedSuspension enforces it.
+// mean velocity. The grain-size functions assume d50_mm > 0 so bedSourcedSuspension enforces it.
 
 namespace sediment {
 
@@ -28,8 +28,8 @@ namespace sediment {
 
     struct BedSourcedFlux {
         double flux;  // suspended bed material transport rate, kg/s
-        double rouse; // P = w_s / kappa u_star, overall u_star (dimensionless)
-        double z_prime;  // modified suspension number Z' = w_s / (beta kappa u_star) + phi
+        double rouse; // Z = w_s / kappa u_star, overall u_star (dimensionless)
+        double z_prime;  // modified rouse number Z' = w_s / (beta kappa u_star) + phi
         double shields_grain;  // grain-related Shields number theta'
         double c_ref;  // reference concentration, volumetric
         double velocity_scale;  // Manning mean velocity / log-law mean velocity over [z_ref, h]
@@ -63,7 +63,7 @@ namespace sediment {
         // double shields_crit = 0.30 / (1 + 1.2 * D_star) + 0.055 * (1 - std::exp(-0.02 * D_star));
         // return shields_crit;
 
-        // Implementing van Rijn 1984 for consistency with the pickup function
+        // Implementing van Rijn 1984
         double D_star = dStar(d50_mm, rho_s);
         double shields_crit;  // van Rijn (1984a) Shields fit, Fig. 1
         if (D_star <= 4.0) {
@@ -116,13 +116,13 @@ namespace sediment {
         return std::min(c_ref, C_MAX);  // physical bound; eq. 38 has none
     }
 
-    // Diffusivity ratio, van Rijn (1984b) eq. 22, stated for 0.1 < w_s/u* < 1 (clamped)
-    inline double betaFactor(double ws, double ustar) {
+    // Diffusivity ratio (Schmidt number), van Rijn (1984b) eq. 22, stated for 0.1 < w_s/u* < 1 (clamped)
+    inline double schmidtNumber(double ws, double ustar) {
         double r = std::clamp(ws / std::max(ustar, USTAR_MIN), 0.1, 1.0);
         return 1.0 + 2.0 * r * r;
     }
 
-    // Overall correction to the suspension number, van Rijn (1984b) eq. 34,
+    // Overall correction to the Rouse number, van Rijn (1984b) eq. 34,
     // stated for 0.01 <= w_s/u* <= 1 (clamped)
     inline double phiFactor(double ws, double ustar, double c_ref) {
         double r = std::clamp(ws / std::max(ustar, USTAR_MIN), 0.01, 1.0);
@@ -150,7 +150,7 @@ namespace sediment {
             return flux;
         }
 
-        // Transport stage from the grain-related bed shear, not the total
+        // Transport stage from the grain-related bed shear, not the total ustar
         double shields_crit = criticalShields(d50_mm, rho_s);
         flux.shields_grain = grainShields(hs, d50_mm, rho_s);
         flux.suspending = flux.shields_grain > shields_crit;
@@ -160,8 +160,8 @@ namespace sediment {
 
         double c_ref = vanRijnCref(d50_mm, rho_s, z_ref, flux.shields_grain, shields_crit);
 
-        // Modified suspension number Z' = Z + phi (van Rijn 1984b, eqs. 3, 22, 33, 34)
-        double Z = ws / (betaFactor(ws, ustar) * KAPPA * ustar);
+        // Modified rouse number Z' = Z + phi (van Rijn 1984b, eqs. 3, 22, 33, 34)
+        double Z = ws / (schmidtNumber(ws, ustar) * KAPPA * ustar);
         double Z_prime = Z + phiFactor(ws, ustar, c_ref);
 
         // Zero-velocity level of the log law, z0 = 0.033 ks (van Rijn 1984b, eq. 40)
