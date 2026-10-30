@@ -43,6 +43,7 @@ using namespace boost::numeric::odeint;
  * @param sim_times The vector of time points corresponding to the results.
  * @param q_final The vector to store final results for each link.
  * @param time_string A string representing the current time in the simulation.
+ * @param sed Sediment results for this chunk, on the supply grid. Unused unless sediment_flag is 1.
  */
 void writeOutput(const ModelSetup& setup,
                  const Partition& part,
@@ -51,7 +52,8 @@ void writeOutput(const ModelSetup& setup,
                  const std::vector<int>& sim_times,
                  std::vector<float>& q_final,
                  const std::string& time_string,
-                 bool is_last_chunk)
+                 bool is_last_chunk,
+                 const SedimentResults& sed)
 {
     // Every array here is in local index space: a rank writes only the links it owns.
     // A single-rank run's local order is ascending global. A distributed rank's order is grouped
@@ -193,6 +195,7 @@ void writeOutput(const ModelSetup& setup,
             discharge_results[idx] = results[link_index * n_steps + t];
 
             if (setup.config.sediment_flag == 1) {
+
                 // keep_indices holds local indices; sed_params is indexed by global
                 // node.index, so map back before looking it up.
                 const auto& sed_params = setup.sed_params[part.global_of[link_index]];
@@ -216,6 +219,9 @@ void writeOutput(const ModelSetup& setup,
         }
     }
 
+    // name is used for both the filename suffix and the NetCDF variable name
+    struct LabeledSeries{const std::vector<float>& data; const char* name; const char* long_name; const char* units;};
+
     // Writing the discharge first
     std::string series_filename = setup.config.series_filepath + "_" + time_string + suffix + ".nc";
     write_timeseries_netcdf(series_filename,
@@ -230,13 +236,12 @@ void writeOutput(const ModelSetup& setup,
     // And then each of the hydraulics outputs if requested
     if (setup.config.sediment_flag == 1) {
 
-        struct HydroOut{const std::vector<float>& data; const char* name; const char* units;};
-        const HydroOut labeled[] = {
-        {depth_results,    "depth",    "m"},
-        {velocity_results, "velocity", "m/s"},
-        {ustar_results,    "ustar",    "m/s"},
-        {shields_results,  "shields",  "1"},
-        {froude_results,   "froude",   "1"},
+        const LabeledSeries labeled[] = {
+        {depth_results,    "depth",    "Flow depth",         "m"},
+        {velocity_results, "velocity", "Mean flow velocity", "m/s"},
+        {ustar_results,    "ustar",    "Shear velocity",     "m/s"},
+        {shields_results,  "shields",  "Shields number",     "1"},
+        {froude_results,   "froude",   "Froude number",      "1"},
         };
 
         for (const auto& out : labeled) {
@@ -250,8 +255,59 @@ void writeOutput(const ModelSetup& setup,
                                    setup.config.calendar,
                                    time_string,
                                    0,
-                                   out.name,
-                                   out.units
+                                   out.long_name,
+                                   out.units,
+                                   out.name
+                                   );
+        }
+    }
+
+    // Sediment output is on the supply grid rather than the output grid, so it gets its own loop
+    if (setup.config.sediment_flag == 1) {
+        const size_t n_sed = sed.n_sed_steps;
+        std::vector<float> flux_out(n_sed * n_keep_links);
+        std::vector<float> conc_out(n_sed * n_keep_links);
+        std::vector<float> hillslope_flux_out(n_sed * n_keep_links);
+        std::vector<float> rouse_out(n_sed * n_keep_links);
+        std::vector<int> sed_times(n_sed);
+
+        for (size_t s = 0; s < n_sed; ++s) {
+            sed_times[s] = static_cast<int>(s * setup.config.supply_resolution);
+            for (size_t j = 0; j < n_keep_links; ++j) {
+                const size_t link_index = keep_indices[j];
+                const size_t src = link_index * n_sed + s;
+                const size_t idx = s * n_keep_links + j;
+                flux_out[idx] = sed.total_flux[src];
+                hillslope_flux_out[idx] = sed.hillslope_flux[src];
+                rouse_out[idx] = sed.rouse[src];
+                // Same interval-mean discharge that ComputeSedimentAtLevel uses
+                const double q_mean = MeanDischargeOverSupplyStep(results, link_index, n_steps, s,
+                    setup.config.supply_resolution, setup.config.dt);
+                conc_out[idx] = static_cast<float>(sed.total_flux[src] / q_mean);
+            }
+        }
+
+        const LabeledSeries sed_labeled[] = {
+            {flux_out,           "total_flux",     "Total suspended sediment flux",             "kg/s"},
+            {hillslope_flux_out, "hillslope_flux", "Hillslope-sourced suspended sediment flux", "kg/s"},
+            {rouse_out,          "rouse",          "Rouse number",                              "1"},
+            {conc_out,           "conc",           "Total suspended sediment concentration",    "kg/m^3"},
+        };
+
+        for (const auto& out : sed_labeled) {
+            std::string sed_series_filename = setup.config.sediment_series_filepath + "_" + out.name + "_" + time_string + suffix + ".nc";
+            write_timeseries_netcdf(sed_series_filename,
+                                   out.data.data(),
+                                   sed_times.data(),
+                                   keep_links.data(),
+                                   n_sed,
+                                   n_keep_links,
+                                   setup.config.calendar,
+                                   time_string,
+                                   0,
+                                   out.long_name,
+                                   out.units,
+                                   out.name
                                    );
         }
     }
@@ -789,7 +845,7 @@ void ProcessChunk(const ModelSetup& setup,
     prefetch.wait_idle();
     auto write_start = std::chrono::high_resolution_clock::now();
     bool is_last_chunk = (tc + 1 == static_cast<size_t>(setup.runoff_info.nchunks));
-    writeOutput(setup, part, results, n_steps, sim_times, q_final, time_string, is_last_chunk);
+    writeOutput(setup, part, results, n_steps, sim_times, q_final, time_string, is_last_chunk, sed);
     auto write_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> write_elapsed = write_end - write_start;
     std::cout << "  Total write time: " << write_elapsed.count() << " seconds" << std::endl;
@@ -880,8 +936,8 @@ void runRouting(const ModelSetup& setup, int rank, int n_ranks){
         if (part.distributed()) {
             std::cerr << "Error: sediment_flag = 1 is not supported with more than one MPI rank. "
             << "Run on one rank or set sediment_flag = 0." << std::endl;
+            exit(EXIT_FAILURE);
         }
-        exit(EXIT_FAILURE);
     }
     SedimentResults sed;
 

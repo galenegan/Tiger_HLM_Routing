@@ -13,6 +13,25 @@ void SedimentResults::resize(size_t n_owned, size_t n_steps_sed) {
     rouse.assign(n, 0.0f);
 }
 
+double MeanDischargeOverSupplyStep(const std::vector<float>& results,
+  size_t local,
+  size_t n_steps,
+  size_t s,
+  double supply_resolution,
+  double dt) {
+
+    // Rounded down and clamped like the results callback; at least one step is averaged
+    const size_t first = std::min(static_cast<size_t>(s * supply_resolution / dt), n_steps - 1);
+    const size_t end = std::clamp(static_cast<size_t>((s + 1) * supply_resolution / dt), first + 1, n_steps);
+
+    const float* row = &results[local * n_steps];
+    double sum = 0.0;
+    for (size_t n = first; n < end; ++n) {
+        sum += row[n];
+    }
+    return sum / static_cast<double>(end - first);
+}
+
 void ComputeSedimentAtLevel(const ModelSetup& setup,
   const Partition& part,
   const RunoffData& supply,
@@ -57,8 +76,7 @@ void ComputeSedimentAtLevel(const ModelSetup& setup,
 
             // TODO GCE: double check this...
             if (cfg.bed_source == 1) {
-                const size_t step = std::min(static_cast<size_t>(s * cfg.supply_resolution / cfg.dt), n_steps - 1);
-                const double q = results[local * n_steps + step];
+                const double q = MeanDischargeOverSupplyStep(results, local, n_steps, s, cfg.supply_resolution, cfg.dt);
                 const auto hs = hydraulics::computeHydraulics(q, p.channel_slope, p.channel_manning_n, p.width_a, p.width_b,
                     p.drain_area_km2, p.d50_mm, cfg.rho_s, cfg.wide_channel);
                 const auto bed = sediment::bedSourcedSuspension(hs, B, p.d50_mm, cfg.rho_s);

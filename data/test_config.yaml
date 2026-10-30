@@ -22,7 +22,7 @@ sediment:
   supply_resolution: 60  # minutes; must equal runoff.resolution
   rho_s: 2650.0  # sediment density, kg/m^3
   bed_source: 1  # 0 disables resuspension from the bed
-  hillslope_source: 0  # 0 disables hillslope supply pathway
+  hillslope_source: 1  # 0 disables hillslope supply pathway
   sediment_series_filepath: "./data/test_one_link/outputs/sediment"
 
 initial_conditions:

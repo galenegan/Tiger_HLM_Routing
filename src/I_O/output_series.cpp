@@ -66,7 +66,8 @@ void write_timeseries_netcdf(const std::string& filename,
                         const std::string time_string,
                         int compression_level,
                         const char* long_name,
-                        const char* units) {
+                        const char* units,
+                        const char* var_name) {
 
     int ncid, sys_dimid, time_dimid;
     int sys_varid, time_varid, results_varid;
@@ -84,7 +85,7 @@ void write_timeseries_netcdf(const std::string& filename,
 
     // Define main data variable
     int dims[2] = {time_dimid,sys_dimid};
-    NC_CHECK(nc_def_var(ncid, "outputs", NC_FLOAT, 2, dims, &results_varid));
+    NC_CHECK(nc_def_var(ncid, var_name, NC_FLOAT, 2, dims, &results_varid));
 
     // Set compression if requested
     if (compression_level > 0) {

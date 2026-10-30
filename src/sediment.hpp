@@ -18,6 +18,18 @@ struct SedimentResults {
     void resize(size_t n_owned, size_t n_steps_sed);
 };
 
+// Mean discharge (m^3/s) of one link over supply step s, i.e. over the routing steps
+// in [s * supply_resolution, (s + 1) * supply_resolution) minutes. Supply is a rate over
+// that interval, so discharge is averaged over the same interval.
+double MeanDischargeOverSupplyStep(
+  const std::vector<float>& results,
+  size_t local,
+  size_t n_steps,
+  size_t s,
+  double supply_resolution,
+  double dt
+);
+
 void ComputeSedimentAtLevel(
   const ModelSetup& setup,
   const Partition& part,

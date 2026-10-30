@@ -122,6 +122,7 @@ SRC := src/main.cpp \
        src/boundary_exchange.cpp \
        src/routing.cpp \
        src/end_info.cpp \
+       src/sediment.cpp \
        src/I_O/node_info.cpp \
        src/I_O/output_series.cpp \
        src/I_O/inputs.cpp \
