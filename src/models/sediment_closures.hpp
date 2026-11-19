@@ -5,9 +5,12 @@
 
 // Suspended bed-material load following van Rijn (1984a, Part I: J. Hydraul. Eng. 110(10);
 // 1984b, Part II: 110(11)).
-// Deviations: Ferguson-Church fall velocity of D50 in place of Part II eqs. 11-13 and 39, plane-bed
-// roughness 3 D90 for the reference level, and the log-law profile scaled to the Manning
-// mean velocity. The grain-size functions assume d50_mm > 0 so bedSourcedSuspension enforces it.
+// Deviations: Ferguson-Church fall velocity of D50 in place of Part II eqs. 11-13 and 39, and
+// plane-bed roughness ks' = 3 D90 for the reference level and the velocity profile. The profile is
+// the grain-roughness log law driven by the grain shear velocity u*', which carries the Manning
+// mean velocity by construction of C'. It represents the near-bed layer that carries most of the
+// suspended flux, and underestimates the velocity gradient higher in the flow, where the total u*
+// governs. The grain-size functions assume d50_mm > 0 so bedSourcedSuspension enforces that condition.
 
 namespace sediment {
 
@@ -25,6 +28,8 @@ namespace sediment {
     inline constexpr double D90_OVER_D50 = 1.5;
     // Maximum (bed) volumetric concentration, van Rijn (1984b) c0
     inline constexpr double C_MAX = 0.65;
+    // Zero-velocity level of the log law over roughness ks, z0 = 0.033 ks (van Rijn 1984b, eq. 40)
+    inline constexpr double Z0_OVER_KS = 0.033;
 
     struct BedSourcedFlux {
         double flux;  // suspended bed material transport rate, kg/s
@@ -32,7 +37,7 @@ namespace sediment {
         double z_prime;  // modified rouse number Z' = w_s / (beta kappa u_star) + phi
         double shields_grain;  // grain-related Shields number theta'
         double c_ref;  // reference concentration, volumetric
-        double velocity_scale;  // Manning mean velocity / log-law mean velocity over [z_ref, h]
+        double ustar_grain;  // grain-related shear velocity u*' = g^0.5 U / C', m/s
         bool suspending;  // false if theta' <= theta_c, or if the depth does not exceed z_ref
     };
 
@@ -94,15 +99,21 @@ namespace sediment {
         return std::max(grainRoughness(d50_mm), 0.01 * h);
     }
 
-    // Grain-related Shields number from u*' = g^0.5 u / C', C' = 18 log10(12 R_b / 3 D90)
-    // (van Rijn 1984a, eqs. 16-18), with the bed hydraulic radius R_b taken as the depth
-    inline double grainShields(const hydraulics::HydraulicState& hs, double d50_mm, double rho_s) {
+    // Grain-related shear velocity u*' = g^0.5 u / C', C' = 18 log10(12 R_b / 3 D90)
+    // (van Rijn 1984a, eqs. 16-18), with the bed hydraulic radius R_b taken as the depth, m/s.
+    // C' / g^0.5 is the depth mean of (1 / kappa) ln(z / z0) over roughness 3 D90, so u*' is the
+    // shear velocity at which the grain-roughness log law carries the mean velocity u.
+    inline double grainShearVelocity(const hydraulics::HydraulicState& hs, double d50_mm) {
         double ratio = 12.0 * hs.depth / grainRoughness(d50_mm);
         if (ratio <= 1.0) {
             return 0.0;  // flow shallower than the roughness: C' undefined
         }
         double chezy_grain = 18.0 * std::log10(ratio);
-        double ustar_grain = std::sqrt(g) * hs.velocity / chezy_grain;
+        return std::sqrt(g) * hs.velocity / chezy_grain;
+    }
+
+    // Grain-related Shields number theta' = u*'^2 / ((s - 1) g D50)
+    inline double grainShields(double ustar_grain, double d50_mm, double rho_s) {
         double gamma = (rho_s - RHO_W) / RHO_W;
         return ustar_grain * ustar_grain / (gamma * g * d50_mm / 1000.0);
     }
@@ -152,7 +163,8 @@ namespace sediment {
 
         // Transport stage from the grain-related bed shear, not the total ustar
         double shields_crit = criticalShields(d50_mm, rho_s);
-        flux.shields_grain = grainShields(hs, d50_mm, rho_s);
+        flux.ustar_grain = grainShearVelocity(hs, d50_mm);
+        flux.shields_grain = grainShields(flux.ustar_grain, d50_mm, rho_s);
         flux.suspending = flux.shields_grain > shields_crit;
         if (!flux.suspending) {
             return flux;
@@ -164,13 +176,12 @@ namespace sediment {
         double Z = ws / (schmidtNumber(ws, ustar) * KAPPA * ustar);
         double Z_prime = Z + phiFactor(ws, ustar, c_ref);
 
-        // Zero-velocity level of the log law, z0 = 0.033 ks (van Rijn 1984b, eq. 40)
-        double z0 = 0.033 * grainRoughness(d50_mm);
+        // Velocity u(z) = (u*' / kappa) ln(z / z0) with z0 from the grain roughness
+        double z0 = Z0_OVER_KS * grainRoughness(d50_mm);
 
         int N = 100; // Vertical discretization
         double h = hs.depth;
         double dz = (h - z_ref) / N;
-        double log_integral = 0.0;
         double c_log_integral = 0.0;
         for (int i = 0; i <= N; ++i) {
             double z = z_ref + i * dz;
@@ -185,17 +196,10 @@ namespace sediment {
             double c = rho_s * c_ref * c_rel;
 
             double w = (i == 0 || i == N) ? 0.5 : 1.0;   // trapezoid weights
-            log_integral += w * log_term * dz; // m
             c_log_integral += w * c * log_term * dz; // kg / m^2
         }
 
-        // The grain-roughness log law overestimates the Manning mean velocity, so the
-        // profile is scaled to carry the routed discharge over [z_ref, h]: the scaled
-        // velocity is u(z) = hs.velocity * (h - z_ref) * log_term / log_integral.
-        double u_scale = hs.velocity * (h - z_ref) / log_integral;
-        flux.velocity_scale = u_scale * KAPPA / ustar;
-
-        flux.flux = u_scale * c_log_integral * B; // multiply by width to get kg / s
+        flux.flux = (flux.ustar_grain / KAPPA) * c_log_integral * B; // multiply by width to get kg / s
         flux.c_ref = c_ref;
         flux.z_prime = Z_prime;
 
