@@ -24,6 +24,10 @@ sediment:
   bed_source: 1  # 0 disables resuspension from the bed
   hillslope_source: 1  # 0 disables hillslope supply pathway
   sediment_series_filepath: "./data/test_one_link/outputs/sediment"
+  # Links without d50_mm get D50 from Tonina et al. (2026) using q_bf_m3s, or, when that is also
+  # blank, Q_bf = q_bf_area_coef * drain_area_km2^q_bf_area_exp (m^3/s). No default coefficients.
+  # q_bf_area_coef: 0.0
+  # q_bf_area_exp: 0.0
 
 initial_conditions:
   flag: 0 # 0 for constant, 1 for netcdf

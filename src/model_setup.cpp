@@ -2,9 +2,11 @@
 #include "model_setup.hpp"  // Your struct and setupModel() declaration
 
 // C++ standard libraries
+#include <algorithm>
 #include <iostream>         // For std::cout, std::endl
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 // External libraries
 #include "I_O/node_info.hpp"
@@ -12,12 +14,14 @@
 #include "I_O/inputs.hpp"
 #include "I_O/config_loader.hpp"
 #include "I_O/sediment_params.hpp"
+#include "models/grain_size.hpp"
+#include "models/hydraulics.hpp"
 #include "models/sediment_closures.hpp"
 
 
 /**
- * @brief Prints the parsed sediment config and the derived grain properties of the
- * link with node index 0, so the inputs can be checked against the YAML and CSV.
+ * @brief Prints the parsed sediment config, where each link's D50 came from with the spread of
+ * the estimated values, and the derived grain properties of the link with node index 0.
  */
 static void printSedimentSummary(const ModelSetup& setup) {
     const ModelConfig& c = setup.config;
@@ -35,6 +39,43 @@ static void printSedimentSummary(const ModelSetup& setup) {
               << "    sediment_series_filepath: " << c.sediment_series_filepath << std::endl;
 
     if (setup.sed_params.empty()) return;
+
+    // Where D50 came from, and the spread of the estimated values
+    size_t n_provided = 0, n_qbf_column = 0, n_area_law = 0;
+    size_t n_sand = 0, n_slope_outside = 0, n_qbf_outside = 0, n_slope_floored = 0;
+    std::vector<double> d50_est, p_sand_est;
+    for (const SedLinkParams& link : setup.sed_params) {
+        if (link.d50_origin == D50Origin::Provided) {
+            ++n_provided;
+            continue;
+        }
+        (link.d50_origin == D50Origin::QbfColumn ? n_qbf_column : n_area_law) += 1;
+        d50_est.push_back(link.d50_mm);
+        p_sand_est.push_back(link.p_sand);
+        if (link.p_sand > 0.5) ++n_sand;
+        if (link.channel_slope < hydraulics::SLOPE_MIN) ++n_slope_floored;
+        const double slope = std::max(link.channel_slope, hydraulics::SLOPE_MIN);
+        if (slope < grain_size::SLOPE_CAL_MIN || slope > grain_size::SLOPE_CAL_MAX) ++n_slope_outside;
+        if (link.q_bf_m3s < grain_size::QBF_CAL_MIN || link.q_bf_m3s > grain_size::QBF_CAL_MAX) ++n_qbf_outside;
+    }
+    std::cout << "  D50 source: " << n_provided << " link(s) from d50_mm, " << n_qbf_column
+              << " estimated with q_bf_m3s, " << n_area_law << " estimated with Q_bf = "
+              << c.q_bf_area_coef << " * A^" << c.q_bf_area_exp << std::endl;
+    if (!d50_est.empty()) {
+        auto spread = [](std::vector<double> v) {
+            std::sort(v.begin(), v.end());
+            return std::to_string(v.front()) + " / " + std::to_string(v[v.size() / 2]) + " / " +
+                   std::to_string(v.back());
+        };
+        std::cout << "  Estimated D50 (Tonina et al. 2026), min / median / max: " << spread(d50_est)
+                  << " mm; sand-bed probability: " << spread(p_sand_est) << std::endl
+                  << "    sand bed (P_s > 0.5): " << n_sand
+                  << "; outside calibration range: slope " << n_slope_outside
+                  << ", Q_bf " << n_qbf_outside
+                  << "; slope floored at " << hydraulics::SLOPE_MIN << ": " << n_slope_floored
+                  << std::endl;
+    }
+
     const SedLinkParams& p = setup.sed_params[0];
     std::cout << "  Link at node index 0 (stream_id " << p.stream_id << "):"
               << " d50_mm " << p.d50_mm;
@@ -73,7 +114,9 @@ ModelSetup setupModel(const char* config_path) {
     // Load sediment params from CSV file
     std::cout << "Loading sediment parameters...";
     if (setup.config.sediment_flag == 1) {
-        setup.sed_params = loadSedLinkParams(setup.config.sediment_parameters_file, setup.node_map);
+        const BankfullAreaLaw area_law{setup.config.q_bf_area_coef, setup.config.q_bf_area_exp};
+        setup.sed_params = loadSedLinkParams(setup.config.sediment_parameters_file, setup.node_map,
+                                             area_law);
         std::cout << "completed!" << std::endl;
         printSedimentSummary(setup);
     } else {

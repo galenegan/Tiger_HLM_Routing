@@ -331,6 +331,8 @@ ModelConfig ConfigLoader::loadConfig(const std::string& filename) {
     config.bed_source = parser.getInt("sediment.bed_source");
     config.hillslope_source = parser.getInt("sediment.hillslope_source");
     config.sediment_series_filepath = parser.getString("sediment.sediment_series_filepath");
+    config.q_bf_area_coef = parser.getDouble("sediment.q_bf_area_coef", 0.0);
+    config.q_bf_area_exp = parser.getDouble("sediment.q_bf_area_exp", 0.0);
 
     auto require_switch = [](const std::string& key, int value) {
         if (value != 0 && value != 1) {

@@ -1,5 +1,10 @@
 #include "sediment_params.hpp"
 #include "node_info.hpp"
+#include "../models/grain_size.hpp"
+#include "../models/hydraulics.hpp"
+#include <algorithm>
+#include <cmath>
+#include <optional>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -32,9 +37,58 @@ std::vector<std::string> splitLine(const std::string& line, char delim) {
     return fields;
 }
 
+// Value of an optional numeric column; empty when the column is absent or the cell is blank
+std::optional<double> optionalField(const std::vector<std::string>& fields,
+                                    const std::unordered_map<std::string, int>& idx,
+                                    const std::string& name) {
+    const auto it = idx.find(name);
+    if (it == idx.end() || fields[it->second].empty()) return std::nullopt;
+    return std::stod(fields[it->second]);
+}
+
+// Fills d50_mm, d50_origin, q_bf_m3s and p_sand by the precedence in sediment_params.hpp
+void resolveD50(SedLinkParams& p, std::optional<double> d50_mm, std::optional<double> q_bf_m3s,
+                const BankfullAreaLaw& area_law, const std::string& csv_path) {
+    const std::string where = "stream_id " + std::to_string(p.stream_id) + " in " + csv_path;
+    if (d50_mm) {
+        p.d50_mm = *d50_mm;
+        p.d50_origin = D50Origin::Provided;
+        p.q_bf_m3s = 0.0;
+        p.p_sand = -1.0;
+        return;
+    }
+    if (q_bf_m3s) {
+        if (!(*q_bf_m3s > 0.0)) {
+            throw std::runtime_error(where + ": q_bf_m3s must be positive, got " +
+                                     std::to_string(*q_bf_m3s));
+        }
+        p.q_bf_m3s = *q_bf_m3s;
+        p.d50_origin = D50Origin::QbfColumn;
+    } else {
+        if (!(area_law.coef > 0.0)) {
+            throw std::runtime_error(where + " has neither d50_mm nor q_bf_m3s; set "
+                                     "sediment.q_bf_area_coef and sediment.q_bf_area_exp to "
+                                     "estimate Q_bf from drainage area");
+        }
+        if (!(p.drain_area_km2 > 0.0)) {
+            throw std::runtime_error(where + ": drain_area_km2 must be positive to estimate "
+                                     "Q_bf from drainage area, got " +
+                                     std::to_string(p.drain_area_km2));
+        }
+        p.q_bf_m3s = area_law.coef * std::pow(p.drain_area_km2, area_law.exp);
+        p.d50_origin = D50Origin::QbfAreaLaw;
+    }
+    const double slope = std::max(p.channel_slope, hydraulics::SLOPE_MIN);
+    const grain_size::BedMaterial bed = grain_size::toninaD50(slope, p.q_bf_m3s);
+    p.d50_mm = bed.d50_mm;
+    p.p_sand = bed.p_sand;
+}
+
 } // namespace
 
-std::vector<SedLinkParams> loadSedLinkParams(const std::string& csv_path, std::unordered_map<size_t,NodeInfo>& node_map) {
+std::vector<SedLinkParams> loadSedLinkParams(const std::string& csv_path,
+                                             const std::unordered_map<size_t, NodeInfo>& node_map,
+                                             const BankfullAreaLaw& area_law) {
     std::ifstream in(csv_path);
     if (!in.is_open()) {
         throw std::runtime_error("Failed to open parameter file: " + csv_path);
@@ -62,7 +116,6 @@ std::vector<SedLinkParams> loadSedLinkParams(const std::string& csv_path, std::u
         "width_a",
         "width_b",
         "drain_area_km2",
-        "d50_mm",
     };
     for (auto& name : required) {
         if (idx.find(name) == idx.end()) {
@@ -115,11 +168,12 @@ std::vector<SedLinkParams> loadSedLinkParams(const std::string& csv_path, std::u
 
         // direct mappings
         p.channel_slope = std::stod(fields[idx.at("channel_slope")]);
-        p.channel_manning_n = std::stod(fields[idx["channel_manning_n"]]);
-        p.width_a = std::stod(fields[idx["width_a"]]);
-        p.width_b = std::stod(fields[idx["width_b"]]);
-        p.drain_area_km2 = std::stod(fields[idx["drain_area_km2"]]);
-        p.d50_mm = std::stod(fields[idx["d50_mm"]]);
+        p.channel_manning_n = std::stod(fields[idx.at("channel_manning_n")]);
+        p.width_a = std::stod(fields[idx.at("width_a")]);
+        p.width_b = std::stod(fields[idx.at("width_b")]);
+        p.drain_area_km2 = std::stod(fields[idx.at("drain_area_km2")]);
+        resolveD50(p, optionalField(fields, idx, "d50_mm"), optionalField(fields, idx, "q_bf_m3s"),
+                   area_law, csv_path);
 
         auto it = id_to_idx.find(p.stream_id);
         if (it == id_to_idx.end()) {

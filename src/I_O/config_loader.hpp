@@ -39,6 +39,8 @@ struct ModelConfig {
     int bed_source;
     int hillslope_source;
     std::string sediment_series_filepath;
+    double q_bf_area_coef = 0.0;  // Q_bf = coef * A_d^exp, m^3/s with A_d in km^2; <= 0 means not set
+    double q_bf_area_exp = 0.0;
 
     // Initial conditions
     int initial_conditions_flag;
